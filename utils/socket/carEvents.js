@@ -24,7 +24,8 @@ function emitCarHoldUpdate(io, car, action, reason) {
           isOnHold: car.isOnHold,
           holdReason: car.holdReason,
           pricePerDay: car.pricePerDay,
-          image: car.image
+          image: car.image,
+          availability: car.availability
         },
         action,
         reason,

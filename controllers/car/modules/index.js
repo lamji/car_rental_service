@@ -23,6 +23,7 @@ module.exports = {
   incrementRentedCount: require('./carManagement').incrementRentedCount,
   updateRating: require('./carManagement').updateRating,
   holdCarDates: require('./holdCarDates').holdCarDates,
+  releaseCarDates: require('./releaseCarDates').releaseCarDates,
   
   // Delete operations
   deleteCar: require('./updateCar').deleteCar,

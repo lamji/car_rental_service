@@ -30,8 +30,8 @@ async function connectRedis() {
         port: process.env.REDIS_PORT
       });
 
-      // Use Redis Cloud configuration
-      client = redis.createClient({
+      // Use Redis Cloud configuration with TLS support
+      const redisConfig = {
         username: process.env.REDIS_USERNAME,
         password: process.env.REDIS_PASSWORD,
         socket: {
@@ -45,7 +45,15 @@ async function connectRedis() {
             return Math.min(retries * 100, 3000);
           }
         }
-      });
+      };
+
+      // Add TLS configuration if enabled
+      if (process.env.REDIS_TLS_ENABLED === 'true') {
+        redisConfig.socket.tls = true;
+        redisConfig.socket.rejectUnauthorized = false; // For development - consider proper cert validation in production
+      }
+
+      client = redis.createClient(redisConfig);
 
       client.on('error', (err) => {
       if (errorCount < MAX_ERROR_LOGS) {
