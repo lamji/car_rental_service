@@ -51,16 +51,26 @@ const saveCarAndRespond = async (car, res, message) => {
 
 // Helper function to clear cache for specific car
 const clearCarCache = async (carId) => {
-  const { clearCache } = require('../../../../utils/redis');
+  const { clearCache, getJSON } = require('../../../../utils/redis');
   
   // Clear all cache keys that might contain this car
   const patterns = [
     'cars', // Main cars list cache
-    `car:${carId}`,
+    `car:${carId}`, // Individual car cache (used in holdCarDates)
     `cars:*${carId}*`,
     `cars:type:*${carId}*`,
     `cars:*${carId}*`
   ];
+  
+  // Also try to clear by MongoDB ObjectId if the carId is a string ID
+  try {
+    const cachedCar = await getJSON(`car:${carId}`);
+    if (cachedCar && cachedCar._id) {
+      patterns.push(`car:${cachedCar._id}`);
+    }
+  } catch (error) {
+    // Ignore cache errors
+  }
   
   for (const pattern of patterns) {
     try {

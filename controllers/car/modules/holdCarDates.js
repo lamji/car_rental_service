@@ -8,13 +8,15 @@ function checkDateUnavailable(cachedCars, id, startDate, endDate, startTime, end
   );
   const unavailableDates = cachedCar?.availability?.unavailableDates || [];
 
-  // Check if requested dates already exist in unavailableDates
+  // Check if requested booking falls within any existing unavailable time frame
   return unavailableDates.some(
-    (existing) =>
-      existing.startDate === startDate &&
-      existing.endDate === endDate &&
-      existing.startTime === startTime &&
-      existing.endTime === endTime,
+    (existing) => {
+      // Check if same date and time overlaps (including start time equal to end time)
+      const sameDate = existing.startDate === startDate;
+      const timeOverlap = startTime >= existing.startTime && startTime <= existing.endTime;
+      
+      return sameDate && timeOverlap;
+    }
   );
 }
 
@@ -84,11 +86,42 @@ exports.holdCarDates = async (req, res) => {
         });
       }
       
+      // If date is available, update database and Redis
+      const bookingEntry = {
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        createdAt: new Date()
+      };
+      
+      // Update database
+      const updatedUnavailableDates = [...(cachedCar.availability?.unavailableDates || []), bookingEntry];
+      await Car.findByIdAndUpdate(
+        id,
+        {
+          $set: {
+            'availability.unavailableDates': updatedUnavailableDates,
+            updatedAt: new Date()
+          }
+        },
+        { new: true }
+      );
+      
+      // Update Redis cache with fresh data
+      const updatedCar = await Car.findOne({ _id: id, isActive: true });
+      await setJSON(`car:${id}`, updatedCar, 300);
+      
+      // Also clear main cars cache to ensure consistency
+      const { clearCache } = require("../../../utils/redis");
+      await clearCache('cars');
+      
       return res.status(200).json({
         success: true,
-        message: "Car found in cache",
+        message: "Car found in cache and booking confirmed",
         data: cachedCar,
-        booking: bookingResult
+        booking: bookingResult,
+        newBooking: bookingEntry
       });
     }
     
@@ -109,13 +142,42 @@ exports.holdCarDates = async (req, res) => {
         });
       }
       
-      await setJSON(`car:${id}`, car, 300);
+      // If date is available, update database and Redis
+      const bookingEntry = {
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        createdAt: new Date()
+      };
+      
+      // Update database
+      const updatedUnavailableDates = [...(car.availability?.unavailableDates || []), bookingEntry];
+      await Car.findByIdAndUpdate(
+        id,
+        {
+          $set: {
+            'availability.unavailableDates': updatedUnavailableDates,
+            updatedAt: new Date()
+          }
+        },
+        { new: true }
+      );
+      
+      // Update Redis cache with fresh data
+      const updatedCar = await Car.findOne({ _id: id, isActive: true });
+      await setJSON(`car:${id}`, updatedCar, 300);
+      
+      // Also clear main cars cache to ensure consistency
+      const { clearCache } = require("../../../utils/redis");
+      await clearCache('cars');
       
       return res.status(200).json({
         success: true,
-        message: "Car found in database",
+        message: "Car found in database and booking confirmed",
         data: car,
-        booking: bookingResult
+        booking: bookingResult,
+        newBooking: bookingEntry
       });
     } else {
       return res.status(404).json({
