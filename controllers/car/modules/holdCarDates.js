@@ -1,5 +1,6 @@
 const Car = require("../../../models/car");
 const { getJSON, setJSON } = require("../../../utils/redis");
+const { emitCarHoldUpdate } = require("../../../utils/socket");
 
 // Helper function to check if date is already unavailable in cache
 function checkDateUnavailable(cachedCars, id, startDate, endDate, startTime, endTime) {
@@ -97,7 +98,7 @@ exports.holdCarDates = async (req, res) => {
       
       // Update database
       const updatedUnavailableDates = [...(cachedCar.availability?.unavailableDates || []), bookingEntry];
-      await Car.findByIdAndUpdate(
+      const updatedCar = await Car.findByIdAndUpdate(
         id,
         {
           $set: {
@@ -108,8 +109,10 @@ exports.holdCarDates = async (req, res) => {
         { new: true }
       );
       
+      // Emit real-time update to connected clients
+      emitCarHoldUpdate(global.io, updatedCar, 'hold', `Car dates held: ${startDate} ${startTime} to ${endDate} ${endTime}`);
+      
       // Update Redis cache with fresh data
-      const updatedCar = await Car.findOne({ _id: id, isActive: true });
       await setJSON(`car:${id}`, updatedCar, 300);
       
       // Also clear main cars cache to ensure consistency
@@ -153,7 +156,7 @@ exports.holdCarDates = async (req, res) => {
       
       // Update database
       const updatedUnavailableDates = [...(car.availability?.unavailableDates || []), bookingEntry];
-      await Car.findByIdAndUpdate(
+      const updatedCar = await Car.findByIdAndUpdate(
         id,
         {
           $set: {
@@ -164,8 +167,10 @@ exports.holdCarDates = async (req, res) => {
         { new: true }
       );
       
+      // Emit real-time update to connected clients
+      emitCarHoldUpdate(global.io, updatedCar, 'hold', `Car dates held: ${startDate} ${startTime} to ${endDate} ${endTime}`);
+      
       // Update Redis cache with fresh data
-      const updatedCar = await Car.findOne({ _id: id, isActive: true });
       await setJSON(`car:${id}`, updatedCar, 300);
       
       // Also clear main cars cache to ensure consistency

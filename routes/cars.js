@@ -19,7 +19,8 @@ const {
   removeUnavailableDates,
   incrementRentedCount,
   updateRating,
-  holdCarDates
+  holdCarDates,
+  releaseCarDates
 } = require('../controllers/car/carController');
 
 const { protect } = require('../middleware/auth');
@@ -69,6 +70,11 @@ router.get('/:id', validateCarId, getCarById);
 // @desc    Hold car dates temporarily to prevent double booking
 // @access  Public
 router.post('/hold-date/:id', validateMongoId, holdCarDates);
+
+// @route   DELETE /api/cars/release-date/:id
+// @desc    Release/remove specific car dates from unavailableDates
+// @access  Public
+router.delete('/release-date/:id', validateMongoId, releaseCarDates);
 
 // Protected routes (authentication required)
 router.use(protect); // Apply auth middleware to all routes below
