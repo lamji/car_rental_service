@@ -1,6 +1,7 @@
 const Car = require("../../../models/car");
 const { getJSON, setJSON } = require("../../../utils/redis");
 const { emitCarHoldUpdate } = require("../../../utils/socket");
+const { startHoldCountdown, getUserAgentRoom } = require("../../../utils/holdCountdown");
 
 // Helper function to check if date is already unavailable in cache
 function checkDateUnavailable(cachedCars, id, startDate, endDate, startTime, endTime) {
@@ -33,13 +34,7 @@ const bookingLogic = (car, startDate, endDate, startTime, endTime) => {
     startTime,
     endTime,
   );
-  console.log("🎯 Booking logic:", {
-    isDateUnavailable,
-    startDate,
-    endDate,
-    startTime,
-    endTime,
-  });
+
   
   // Dynamic return - for now just return boolean, but can be extended
   return {
@@ -62,6 +57,7 @@ exports.holdCarDates = async (req, res) => {
   try {
     const { id } = req.params;
     const { startDate, endDate, startTime, endTime } = req.body;
+    const userAgent = req.headers['user-agent'] || 'unknown';
 
     // Validate required fields
     if (!startDate || !endDate || !startTime || !endTime) {
@@ -71,12 +67,21 @@ exports.holdCarDates = async (req, res) => {
       });
     }
 
+    // Create booking entry with userAgent for tracking
+    const bookingEntry = {
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      userAgent,
+      createdAt: new Date()
+    };
+
     // Simple logic: check if car id is available in redis
     const cachedCar = await getJSON(`car:${id}`);
     
     if (cachedCar) {
-      // if yes return it
-      console.log('🎯 Redis cache HIT for car:', id);
+      console.log('Redis cache HIT for car:', id);
       const bookingResult = bookingLogic(cachedCar, startDate, endDate, startTime, endTime);
       
       if (bookingResult.isDateUnavailable) {
@@ -87,27 +92,54 @@ exports.holdCarDates = async (req, res) => {
         });
       }
       
-      // If date is available, update database and Redis
-      const bookingEntry = {
-        startDate,
-        endDate,
-        startTime,
-        endTime,
-        createdAt: new Date()
-      };
-      
-      // Update database
-      const updatedUnavailableDates = [...(cachedCar.availability?.unavailableDates || []), bookingEntry];
-      const updatedCar = await Car.findByIdAndUpdate(
-        id,
+      // Use atomic operation to update database and prevent race conditions
+      const updatedCar = await Car.findOneAndUpdate(
         {
-          $set: {
-            'availability.unavailableDates': updatedUnavailableDates,
-            updatedAt: new Date()
-          }
+          _id: id,
+          isActive: true,
+          // Ensure no overlapping booking exists (double-check)
+          $nor: [
+            {
+              'availability.unavailableDates': {
+                $elemMatch: {
+                  startDate: startDate,
+                  $or: [
+                    { 
+                      $and: [
+                        { startTime: { $lte: endTime } },
+                        { endTime: { $gte: startTime } }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          $push: { 'availability.unavailableDates': bookingEntry },
+          $set: { updatedAt: new Date() }
         },
         { new: true }
       );
+
+      if (!updatedCar) {
+        return res.status(409).json({
+          success: false,
+          message: "Date is no longer available - please try again",
+          data: {
+            status: 'unavailable',
+            isDateUnavailable: true,
+            car: id,
+            requestedDates: {
+              startDate,
+              endDate,
+              startTime,
+              endTime
+            }
+          }
+        });
+      }
       
       // Emit real-time update to connected clients
       emitCarHoldUpdate(global.io, updatedCar, 'hold', `Car dates held: ${startDate} ${startTime} to ${endDate} ${endTime}`);
@@ -119,22 +151,42 @@ exports.holdCarDates = async (req, res) => {
       const { clearCache } = require("../../../utils/redis");
       await clearCache('cars');
       
+      // Find the newly added booking to get its _id
+      const newBookingWithId = updatedCar.availability.unavailableDates.find(
+        booking => booking.startDate === startDate && 
+                  booking.endDate === endDate && 
+                  booking.startTime === startTime && 
+                  booking.endTime === endTime
+      );
+      
+      // Start 2-minute hold countdown
+      const holdInfo = startHoldCountdown({
+        userAgent,
+        carId: id,
+        bookingId: newBookingWithId?._id?.toString() || '',
+        bookingDetails: { startDate, endDate, startTime, endTime },
+      });
+
       return res.status(200).json({
         success: true,
         message: "Car found in cache and booking confirmed",
         data: cachedCar,
         booking: bookingResult,
-        newBooking: bookingEntry
+        newBooking: newBookingWithId || bookingEntry,
+        hold: {
+          room: holdInfo.room,
+          expiresAt: holdInfo.expiresAt,
+          durationMs: 120000,
+        },
       });
     }
     
     // else check the db
-    console.log('🔍 Redis cache MISS for car:', id, '- checking database');
+    console.log('Redis cache MISS for car:', id, '- checking database');
     const car = await Car.findOne({ _id: id, isActive: true });
     
     if (car) {
-      // return it and set it to redis
-      console.log('🎯 Found car in database, caching to Redis:', id);
+      console.log('Found car in database, caching to Redis:', id);
       const bookingResult = bookingLogic(car, startDate, endDate, startTime, endTime);
       
       if (bookingResult.isDateUnavailable) {
@@ -145,27 +197,54 @@ exports.holdCarDates = async (req, res) => {
         });
       }
       
-      // If date is available, update database and Redis
-      const bookingEntry = {
-        startDate,
-        endDate,
-        startTime,
-        endTime,
-        createdAt: new Date()
-      };
-      
-      // Update database
-      const updatedUnavailableDates = [...(car.availability?.unavailableDates || []), bookingEntry];
-      const updatedCar = await Car.findByIdAndUpdate(
-        id,
+      // Use atomic operation to update database and prevent race conditions
+      const updatedCar = await Car.findOneAndUpdate(
         {
-          $set: {
-            'availability.unavailableDates': updatedUnavailableDates,
-            updatedAt: new Date()
-          }
+          _id: id,
+          isActive: true,
+          // Ensure no overlapping booking exists (double-check)
+          $nor: [
+            {
+              'availability.unavailableDates': {
+                $elemMatch: {
+                  startDate: startDate,
+                  $or: [
+                    { 
+                      $and: [
+                        { startTime: { $lte: endTime } },
+                        { endTime: { $gte: startTime } }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          $push: { 'availability.unavailableDates': bookingEntry },
+          $set: { updatedAt: new Date() }
         },
         { new: true }
       );
+
+      if (!updatedCar) {
+        return res.status(409).json({
+          success: false,
+          message: "Date is no longer available - please try again",
+          data: {
+            status: 'unavailable',
+            isDateUnavailable: true,
+            car: id,
+            requestedDates: {
+              startDate,
+              endDate,
+              startTime,
+              endTime
+            }
+          }
+        });
+      }
       
       // Emit real-time update to connected clients
       emitCarHoldUpdate(global.io, updatedCar, 'hold', `Car dates held: ${startDate} ${startTime} to ${endDate} ${endTime}`);
@@ -177,12 +256,33 @@ exports.holdCarDates = async (req, res) => {
       const { clearCache } = require("../../../utils/redis");
       await clearCache('cars');
       
+      // Find the newly added booking to get its _id
+      const newBookingWithId = updatedCar.availability.unavailableDates.find(
+        booking => booking.startDate === startDate && 
+                  booking.endDate === endDate && 
+                  booking.startTime === startTime && 
+                  booking.endTime === endTime
+      );
+      
+      // Start 2-minute hold countdown
+      const holdInfo = startHoldCountdown({
+        userAgent,
+        carId: id,
+        bookingId: newBookingWithId?._id?.toString() || '',
+        bookingDetails: { startDate, endDate, startTime, endTime },
+      });
+
       return res.status(200).json({
         success: true,
         message: "Car found in database and booking confirmed",
         data: car,
         booking: bookingResult,
-        newBooking: bookingEntry
+        newBooking: newBookingWithId || bookingEntry,
+        hold: {
+          room: holdInfo.room,
+          expiresAt: holdInfo.expiresAt,
+          durationMs: 120000,
+        },
       });
     } else {
       return res.status(404).json({

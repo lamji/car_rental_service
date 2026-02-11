@@ -38,20 +38,27 @@ exports.releaseCarDates = async (req, res) => {
         });
       }
       
-      // Remove the booking from unavailableDates
-      const updatedUnavailableDates = unavailableDates.filter(booking => booking._id.toString() !== bookingId.toString());
-      
-      // Update database
-      const updatedCar = await Car.findByIdAndUpdate(
-        id,
+      // Use atomic operation to remove booking and prevent race conditions
+      const updatedCar = await Car.findOneAndUpdate(
         {
-          $set: {
-            'availability.unavailableDates': updatedUnavailableDates,
-            updatedAt: new Date()
-          }
+          _id: id,
+          isActive: true,
+          // Ensure the booking still exists (double-check)
+          'availability.unavailableDates._id': bookingId
+        },
+        {
+          $pull: { 'availability.unavailableDates': { _id: bookingId } },
+          $set: { updatedAt: new Date() }
         },
         { new: true }
       );
+
+      if (!updatedCar) {
+        return res.status(409).json({
+          success: false,
+          message: "Unable to release booking - please try again"
+        });
+      }
       
       // Emit real-time update to connected clients
       emitCarHoldUpdate(global.io, updatedCar, 'release', `Car dates released: ${bookingToRemove.startDate} ${bookingToRemove.startTime} to ${bookingToRemove.endDate} ${bookingToRemove.endTime}`);
@@ -68,7 +75,7 @@ exports.releaseCarDates = async (req, res) => {
         message: "Car found in cache and booking released successfully",
         data: cachedCar,
         removedBooking: bookingToRemove,
-        updatedUnavailableDates
+        updatedUnavailableDates: updatedCar.availability?.unavailableDates || []
       });
     }
     
@@ -90,20 +97,27 @@ exports.releaseCarDates = async (req, res) => {
         });
       }
       
-      // Remove the booking from unavailableDates
-      const updatedUnavailableDates = unavailableDates.filter(booking => booking._id.toString() !== bookingId.toString());
-      
-      // Update database
-      const updatedCar = await Car.findByIdAndUpdate(
-        id,
+      // Use atomic operation to remove booking and prevent race conditions
+      const updatedCar = await Car.findOneAndUpdate(
         {
-          $set: {
-            'availability.unavailableDates': updatedUnavailableDates,
-            updatedAt: new Date()
-          }
+          _id: id,
+          isActive: true,
+          // Ensure the booking still exists (double-check)
+          'availability.unavailableDates._id': bookingId
+        },
+        {
+          $pull: { 'availability.unavailableDates': { _id: bookingId } },
+          $set: { updatedAt: new Date() }
         },
         { new: true }
       );
+
+      if (!updatedCar) {
+        return res.status(409).json({
+          success: false,
+          message: "Unable to release booking - please try again"
+        });
+      }
       
       // Emit real-time update to connected clients
       emitCarHoldUpdate(global.io, updatedCar, 'release', `Car dates released: ${bookingToRemove.startDate} ${bookingToRemove.startTime} to ${bookingToRemove.endDate} ${bookingToRemove.endTime}`);
@@ -120,7 +134,7 @@ exports.releaseCarDates = async (req, res) => {
         message: "Car found in database and booking released successfully",
         data: car,
         removedBooking: bookingToRemove,
-        updatedUnavailableDates
+        updatedUnavailableDates: updatedCar.availability?.unavailableDates || []
       });
     } else {
       return res.status(404).json({

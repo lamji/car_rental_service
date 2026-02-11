@@ -32,6 +32,11 @@ const {
   emitPaymentStatusUpdate 
 } = require('./bookingEvents');
 
+const {
+  emitHoldWarning,
+  emitHoldExpired,
+} = require('./holdExpiryEvents');
+
 // Re-export all functions for easy import
 module.exports = {
   // Car events
@@ -54,5 +59,9 @@ module.exports = {
   // Booking events
   emitBookingStatusUpdate,
   emitBookingCreated,
-  emitPaymentStatusUpdate
+  emitPaymentStatusUpdate,
+
+  // Hold expiry events
+  emitHoldWarning,
+  emitHoldExpired,
 };
