@@ -196,6 +196,18 @@ db.then(() => {
   });
 
   /**
+   * Debug Endpoint - Test if latest code is deployed
+   * @route GET /api/debug
+   */
+  app.get('/api/debug', (req, res) => {
+    res.status(200).json({
+      success: true,
+      message: 'DEBUG ENDPOINT - Latest code deployed at: ' + new Date().toISOString(),
+      commit: 'f0b6ea4'
+    });
+  });
+
+  /**
    * 404 Handler
    * Catch-all for undefined routes
    */
