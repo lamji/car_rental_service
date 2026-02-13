@@ -188,7 +188,7 @@ db.then(() => {
   app.get('/api/health', (req, res) => {
     res.status(200).json({
       success: true,
-      message: 'Server is running with socket io',
+      message: 'Server is running with socket io car rental service',
       timestamp: new Date().toISOString()
     });
   });
