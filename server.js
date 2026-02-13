@@ -196,6 +196,19 @@ db.then(() => {
   });
 
   /**
+   * Root Health Check Endpoint (for Northflank)
+   * @route GET /health
+   * @returns {Object} Server status information
+   */
+  app.get('/health', (req, res) => {
+    res.status(200).json({
+      success: true,
+      message: 'Health check passed',
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  /**
    * Debug Endpoint - Test if latest code is deployed
    * @route GET /api/debug
    */
