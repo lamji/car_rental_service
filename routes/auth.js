@@ -18,6 +18,7 @@ const { generateGuestToken } = require('../controllers/auth/guestToken');
 const router = express.Router();
 
 // Router for authentication endpoints. Mounted at `/api/auth` in `server.js`.
+console.log('🔧 Auth routes initialized');
 // Notes on imports used here:
 // - `express-validator`: declaratively validates request bodies (returns 400 on invalid input)
 // - `User` model: Mongoose schema with password hashing (pre('save')) and helpers
@@ -77,6 +78,9 @@ router.post('/opt-resend', validateResendOtp, profileController.resendOtp);
 // @desc    Generate guest token for unauthenticated booking
 // @route   POST /auth/guest-token
 // @access  Public
-router.post('/guest-token', generateGuestToken);
+router.post('/guest-token', (req, res, next) => {
+  console.log('🎯 GUEST-TOKEN ENDPOINT HIT!');
+  next();
+}, generateGuestToken);
 
 module.exports = router;

@@ -160,6 +160,8 @@ db.then(() => {
    * API Routes
    * Mounts route handlers under their respective paths
    */
+  console.log('🔍 Registering routes...');
+  console.log('- /api/auth routes mounted');
   app.use('/api/auth', authRoutes);
   // app.use('/api/todos', todoRoutes);
   // app.use('/api/notifications', notificationRoutes);
