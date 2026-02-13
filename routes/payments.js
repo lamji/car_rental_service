@@ -17,6 +17,7 @@ const {
   validatePaymentLink
 } = require('../validators/paymentValidator');
 const { protect } = require('../middleware/auth');
+const { guestOrAuth } = require('../middleware/guestOrAuth');
 const { PayMongoWebhookHandler } = require('../paymongo/webhook');
 const { gcashPayment } = require('../paymongo/gcash-payment');
 const webhookHandler = new PayMongoWebhookHandler();
@@ -29,7 +30,7 @@ router.post('/method', protect, validatePaymentMethod, createPaymentMethod);
 router.post('/attach', protect, validateAttachPayment, attachPaymentMethod);
 
 // GCash payment route (full flow: intent → method → attach)
-router.post('/gcash', protect, gcashPayment);
+router.post('/gcash', guestOrAuth, gcashPayment);
 
 // Payment Link routes (user can choose payment method)
 router.post('/link', protect, validatePaymentLink, createPaymentLink);

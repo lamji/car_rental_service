@@ -33,64 +33,12 @@ const bookingDetailsSchema = new mongoose.Schema({
   email: { type: String, required: true },
   idType: { 
     type: String, 
-    enum: ['national_id', 'drivers_license', 'passport', 'others'], 
+    enum: ['drivers_license', 'passport', 'national_id', 'postal_id', 'sss_id', 'gsis_id', 'philhealth_id', 'pagibig_id', 'prc_license', 'senior_citizen_id', 'voters_id', 'student_id', 'others'], 
     required: true 
   },
   licenseNumber: { type: String, required: true }
 });
 
-// Schema for garage location
-const garageLocationSchema = new mongoose.Schema({
-  address: { type: String, required: true },
-  city: { type: String, required: true },
-  province: { type: String, required: true },
-  coordinates: {
-    lat: { type: Number, required: true },
-    lng: { type: Number, required: true }
-  }
-});
-
-// Schema for car owner
-const carOwnerSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  contactNumber: { type: String, required: true }
-});
-
-// Schema for car availability
-const availabilitySchema = new mongoose.Schema({
-  isAvailableToday: { type: Boolean, default: true },
-  unavailableDates: [{ type: String }]
-});
-
-// Schema for selected car
-const selectedCarSchema = new mongoose.Schema({
-  id: { type: String, required: true },
-  name: { type: String, required: true },
-  type: { type: String, required: true },
-  image: { type: String, required: true },
-  imageUrls: [{ type: String }],
-  fuel: { type: String, required: true },
-  year: { type: Number, required: true },
-  pricePerDay: { type: Number, required: true },
-  pricePer12Hours: { type: Number, required: true },
-  pricePer24Hours: { type: Number, required: true },
-  pricePerHour: { type: Number, required: true },
-  seats: { type: Number, required: true },
-  transmission: { 
-    type: String, 
-    enum: ['manual', 'automatic'], 
-    required: true 
-  },
-  deliveryFee: { type: Number, required: true },
-  garageAddress: { type: String, required: true },
-  garageLocation: { type: garageLocationSchema, required: true },
-  owner: { type: carOwnerSchema, required: true },
-  rentedCount: { type: Number, default: 0 },
-  rating: { type: Number, min: 0, max: 5, default: 0 },
-  selfDrive: { type: Boolean, default: true },
-  availability: { type: availabilitySchema, default: () => ({}) },
-  distanceText: { type: String }
-});
 
 // Main booking schema
 const bookingSchema = new mongoose.Schema({
@@ -99,8 +47,10 @@ const bookingSchema = new mongoose.Schema({
     required: true
   },
   selectedCar: {
-    type: selectedCarSchema,
-    required: true
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Car',
+    required: true,
+    index: true
   },
   userId: { 
     type: String, 
@@ -146,7 +96,7 @@ const bookingSchema = new mongoose.Schema({
 bookingSchema.index({ userId: 1, createdAt: -1 });
 bookingSchema.index({ paymentStatus: 1, bookingStatus: 1 });
 bookingSchema.index({ 'bookingDetails.startDate': 1, 'bookingDetails.endDate': 1 });
-bookingSchema.index({ 'selectedCar.id': 1 });
+bookingSchema.index({ selectedCar: 1 });
 
 // Pre-save middleware to update updatedAt
 bookingSchema.pre('save', function(next) {
@@ -171,7 +121,7 @@ bookingSchema.statics.findByUserId = function(userId, options = {}) {
 bookingSchema.statics.findByCarId = function(carId, options = {}) {
   const { startDate, endDate } = options;
   
-  const query = { 'selectedCar.id': carId };
+  const query = { selectedCar: carId };
   
   if (startDate && endDate) {
     query.$or = [
@@ -182,7 +132,7 @@ bookingSchema.statics.findByCarId = function(carId, options = {}) {
     ];
   }
   
-  return this.find(query).sort({ createdAt: -1 });
+  return this.find(query).populate('selectedCar').sort({ createdAt: -1 });
 };
 
 // Instance method to check if booking is active

@@ -15,7 +15,7 @@ exports.getUserBookings = async (req, res) => {
       limit: parseInt(limit),
       skip: (parseInt(page) - 1) * parseInt(limit),
       status
-    });
+    }).populate('selectedCar');
     
     const total = await Booking.countDocuments({ 
       userId: req.params.userId,

@@ -1,31 +1,80 @@
 const { logError, formatDate } = require('../../utils/logging');
+const Booking = require('../../models/booking');
+const { emitPaymentStatusUpdate } = require('../../utils/socket');
+const { setJSON, clearCache } = require('../../utils/redis');
 
 async function handlePaymentPaid(event) {
   try {
     const payment = event; // event is already the payment object
-    console.log(`[${formatDate()}] - 💰 PAYMENT PAID | ID: ${JSON.stringify(payment, null, 2)}`);
+    console.log(`[${formatDate()}] - PAYMENT PAID | ID: ${payment.id}`);
 
-    // Update order status if payment is linked to an order
-    if (payment.attributes.metadata?.order_id) {
-    //   await updateOrderStatus(
-    //     payment.attributes.metadata.order_id,
-    //     'paid',
-    //     payment.id,
-    //     {
-    //       paymentMethod: 'online',
-    //       paymentReference: payment.attributes.external_reference_number,
-    //       paymentAmount: payment.attributes.amount / 100,
-    //       paymentFee: (payment.attributes.fee || 0) / 100,
-    //       paymentNetAmount: (payment.attributes.amount - (payment.attributes.fee || 0)) / 100,
-    //       paymentCurrency: payment.attributes.currency,
-    //       paidAt: new Date()
-    //     }
-    //   );
-    } else {
-      console.log(`[${formatDate()}] - ⚠️  Payment not linked to any order`);
+    const metadata = payment.attributes?.metadata || payment.attributes?.payment_intent?.metadata || {};
+    const bookingId = metadata.bookingId;
+
+    if (!bookingId) {
+      console.log(`[${formatDate()}] - Payment not linked to any booking (no bookingId in metadata)`);
+      return;
+    }
+
+    console.log(`[${formatDate()}] - Updating booking ${bookingId} paymentStatus to 'paid'`);
+
+    const updatedBooking = await Booking.findOneAndUpdate(
+      { bookingId },
+      {
+        $set: {
+          paymentStatus: 'paid',
+          bookingStatus: 'confirmed',
+          'paymentDetails.paymentId': payment.id,
+          'paymentDetails.paymentMethod': payment.attributes?.source?.type || 'gcash',
+          'paymentDetails.amount': (payment.attributes?.amount || 0) / 100,
+          'paymentDetails.paidAt': new Date(),
+          updatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+
+    if (!updatedBooking) {
+      console.log(`[${formatDate()}] - Booking ${bookingId} not found in database`);
+      return;
+    }
+
+    console.log(`[${formatDate()}] - Booking ${bookingId} updated to paid/confirmed`);
+
+    // Update Redis cache
+    try {
+      await clearCache('bookings');
+      console.log(`[${formatDate()}] - Bookings cache cleared after payment`);
+    } catch (cacheErr) {
+      console.error(`[${formatDate()}] - Redis cache error:`, cacheErr.message);
+    }
+
+    // Emit socket event to notify frontend
+    if (global.io) {
+      // Emit to the userAgent room (same room used for hold events)
+      const userAgent = metadata.userId || '';
+      emitPaymentStatusUpdate(global.io, {
+        id: payment.id,
+        bookingId: bookingId,
+        userId: userAgent,
+        amount: (payment.attributes?.amount || 0) / 100,
+      }, 'paid');
+
+      // Also broadcast to all clients so the waiting page can pick it up
+      global.io.emit('payment_status_updated', {
+        event: 'payment_status_updated',
+        data: {
+          bookingId,
+          status: 'paid',
+          paymentId: payment.id,
+          amount: (payment.attributes?.amount || 0) / 100,
+          metadata,
+        },
+      });
+      console.log(`[${formatDate()}] - payment_status_updated socket event emitted for ${bookingId}`);
     }
   } catch (error) {
-    logError(`❌ Error handling payment paid: ${error.message}`);
+    logError(`Error handling payment paid: ${error.message}`);
   }
 }
 

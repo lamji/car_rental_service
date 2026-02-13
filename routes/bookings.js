@@ -8,6 +8,7 @@ const {
   getBookingByBookingId,
   updateBooking,
   updatePaymentStatus,
+  updatePaymentStatusByBookingId,
   updateBookingStatus,
   deleteBooking,
   getUserBookings,
@@ -15,6 +16,7 @@ const {
 } = require('../controllers/booking/bookingController');
 
 const { protect } = require('../middleware/auth');
+const { guestOrAuth } = require('../middleware/guestOrAuth');
 const {
   validateCreateBooking,
   validateUpdateBooking,
@@ -25,18 +27,18 @@ const {
   validateBookingQuery
 } = require('../validators/bookingValidator');
 
-// Apply authentication middleware to all routes
-router.use(protect);
-
 // @route   POST /api/bookings
 // @desc    Create a new booking
-// @access  Private
-router.post('/', validateCreateBooking, createBooking);
+// @access  Private (supports guest tokens)
+router.post('/', guestOrAuth, validateCreateBooking, createBooking);
 
 // @route   GET /api/bookings
 // @desc    Get all bookings with pagination and filtering
-// @access  Private
-router.get('/', validateBookingQuery, getBookings);
+// @access  Private (supports guest tokens)
+router.get('/', guestOrAuth, validateBookingQuery, getBookings);
+
+// Apply authentication middleware to all remaining routes
+router.use(protect);
 
 // @route   GET /api/bookings/user/:userId
 // @desc    Get user bookings
@@ -67,6 +69,11 @@ router.put('/:id', validateObjectId, validateUpdateBooking, updateBooking);
 // @desc    Update booking payment status
 // @access  Private
 router.patch('/:id/payment-status', validateObjectId, validateUpdatePaymentStatus, updatePaymentStatus);
+
+// @route   PATCH /api/bookings/booking-id/:bookingId/payment-status
+// @desc    Update booking payment status by bookingId (e.g. BK-MLJHVDVT)
+// @access  Private
+router.patch('/booking-id/:bookingId/payment-status', validateBookingId, validateUpdatePaymentStatus, updatePaymentStatusByBookingId);
 
 // @route   PATCH /api/bookings/:id/booking-status
 // @desc    Update booking status

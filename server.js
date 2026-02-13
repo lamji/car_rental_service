@@ -95,17 +95,14 @@ app.use(limiter);
 
 /**
  * CORS Configuration
- * Defines allowed frontend origins that can access this API.
+ * Uses ALLOWED_ORIGINS from .env (comma-separated).
+ * Falls back to localhost defaults in development.
  * @constant {string[]} allowedOrigins - List of permitted origins
- * @todo Move to environment variables for production (e.g., ALLOWED_ORIGINS)
  */
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'https://app.example.com',
-  'https://admin.example.com',
-  'https://staging.example.com',
-];
+const isDev = process.env.NODE_ENV === 'development';
+const allowedOrigins = isDev
+  ? ['http://localhost:3000', 'http://localhost:5173']
+  : (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim());
 
 /**
  * CORS Middleware
@@ -116,7 +113,14 @@ const allowedOrigins = [
  * @see {@link https://github.com/expressjs/cors#configuration-options}
  */
 app.use(cors({
-  origin: true, // Allow all origins in development or use environment variable
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, mobile, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials: true
 }));
 
