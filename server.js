@@ -71,6 +71,17 @@ app.use(express.urlencoded({ extended: true }));
 app.post("/emit", createSocketBridge(io));
 
 /**
+ * Request Logging Middleware
+ * Logs all incoming requests with method, URL, IP, and timestamp
+ */
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  const ip = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'];
+  console.log(`[${timestamp}] ${req.method} ${req.originalUrl} - IP: ${ip}`);
+  next();
+});
+
+/**
  * Socket.io Connection Logic
  */
 setupSocketHandlers(io);
