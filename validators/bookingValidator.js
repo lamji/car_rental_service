@@ -103,14 +103,24 @@ exports.validateCreateBooking = [
     .withMessage('Email must be a valid email address'),
   
   body('bookingDetails.idType')
+    .optional({ checkFalsy: true })
     .isIn(['drivers_license', 'passport', 'national_id', 'postal_id', 'sss_id', 'gsis_id', 'philhealth_id', 'pagibig_id', 'prc_license', 'senior_citizen_id', 'voters_id', 'student_id', 'others'])
     .withMessage('ID type must be a valid Philippine ID type'),
   
   body('bookingDetails.licenseNumber')
-    .notEmpty()
-    .withMessage('License number is required')
+    .optional({ checkFalsy: true })
     .isString()
     .withMessage('License number must be a string'),
+  
+  body('bookingDetails.licenseImage')
+    .optional({ checkFalsy: true })
+    .isString()
+    .withMessage('License image must be a string'),
+  
+  body('bookingDetails.ltoPortalScreenshot')
+    .optional({ checkFalsy: true })
+    .isString()
+    .withMessage('LTO portal screenshot must be a string'),
   
   body('selectedCar')
     .notEmpty()

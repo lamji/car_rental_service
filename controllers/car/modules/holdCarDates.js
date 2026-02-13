@@ -1,7 +1,7 @@
 const Car = require("../../../models/car");
 const { getJSON, setJSON } = require("../../../utils/redis");
 const { emitCarHoldUpdate } = require("../../../utils/socket");
-const { startHoldCountdown, getUserAgentRoom } = require("../../../utils/holdCountdown");
+const { startHoldCountdown, getUserAgentRoom, getActiveHold, autoReleaseBooking } = require("../../../utils/holdCountdown");
 
 // Helper function to check if date is already unavailable in cache
 function checkDateUnavailable(cachedCars, id, startDate, endDate, startTime, endTime) {
@@ -67,6 +67,14 @@ exports.holdCarDates = async (req, res) => {
       });
     }
 
+    // Release any existing hold from the same userAgent on this car
+    // This prevents "date unavailable" errors when the user changes dates/times
+    const existingHold = getActiveHold(userAgent);
+    if (existingHold && existingHold.carId === id && existingHold.bookingId) {
+      console.log(`[holdCarDates] Releasing previous hold for userAgent before new hold. BookingId: ${existingHold.bookingId}`);
+      await autoReleaseBooking(id, existingHold.bookingId);
+    }
+
     // Create booking entry with userAgent for tracking
     const bookingEntry = {
       startDate,
@@ -77,7 +85,7 @@ exports.holdCarDates = async (req, res) => {
       createdAt: new Date()
     };
 
-    // Simple logic: check if car id is available in redis
+    // Fetch car from redis (re-fetch after potential release to get fresh data)
     const cachedCar = await getJSON(`car:${id}`);
     
     if (cachedCar) {

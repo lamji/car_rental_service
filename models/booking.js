@@ -24,8 +24,8 @@ const bookingDetailsSchema = new mongoose.Schema({
   excessHours: { type: Number, default: 0 },
   excessHoursPrice: { type: Number, default: 0 },
   dataConsent: { type: Boolean, required: true },
-  licenseImage: { type: String, required: true },
-  ltoPortalScreenshot: { type: String, required: true },
+  licenseImage: { type: String, required: false },
+  ltoPortalScreenshot: { type: String, required: false },
   firstName: { type: String, required: true },
   middleName: { type: String },
   lastName: { type: String, required: true },
@@ -33,10 +33,10 @@ const bookingDetailsSchema = new mongoose.Schema({
   email: { type: String, required: true },
   idType: { 
     type: String, 
-    enum: ['drivers_license', 'passport', 'national_id', 'postal_id', 'sss_id', 'gsis_id', 'philhealth_id', 'pagibig_id', 'prc_license', 'senior_citizen_id', 'voters_id', 'student_id', 'others'], 
-    required: true 
+    enum: ['', 'drivers_license', 'passport', 'national_id', 'postal_id', 'sss_id', 'gsis_id', 'philhealth_id', 'pagibig_id', 'prc_license', 'senior_citizen_id', 'voters_id', 'student_id', 'others'], 
+    required: false 
   },
-  licenseNumber: { type: String, required: true }
+  licenseNumber: { type: String, required: false }
 });
 
 
