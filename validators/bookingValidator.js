@@ -103,8 +103,8 @@ exports.validateCreateBooking = [
     .withMessage('Email must be a valid email address'),
   
   body('bookingDetails.idType')
-    .isIn(['national_id', 'drivers_license', 'passport', 'others'])
-    .withMessage('ID type must be one of: national_id, drivers_license, passport, others'),
+    .isIn(['drivers_license', 'passport', 'national_id', 'postal_id', 'sss_id', 'gsis_id', 'philhealth_id', 'pagibig_id', 'prc_license', 'senior_citizen_id', 'voters_id', 'student_id', 'others'])
+    .withMessage('ID type must be a valid Philippine ID type'),
   
   body('bookingDetails.licenseNumber')
     .notEmpty()
@@ -112,23 +112,18 @@ exports.validateCreateBooking = [
     .isString()
     .withMessage('License number must be a string'),
   
-  body('selectedCar.id')
+  body('selectedCar')
     .notEmpty()
     .withMessage('Car ID is required')
-    .isString()
-    .withMessage('Car ID must be a string'),
-  
-  body('selectedCar.name')
-    .notEmpty()
-    .withMessage('Car name is required')
-    .isString()
-    .withMessage('Car name must be a string'),
-  
-  body('selectedCar.pricePerDay')
-    .isNumeric()
-    .withMessage('Price per day must be a number')
-    .isFloat({ min: 0 })
-    .withMessage('Price per day must be greater than or equal to 0')
+    .customSanitizer((value) => {
+      // Accept either a plain ObjectId string or an object with _id
+      if (value && typeof value === 'object' && value._id) {
+        return value._id;
+      }
+      return value;
+    })
+    .isMongoId()
+    .withMessage('Invalid car ID')
 ];
 
 // Validate update booking
@@ -228,5 +223,10 @@ exports.validateBookingQuery = [
   query('endDate')
     .optional()
     .isISO8601()
-    .withMessage('End date must be a valid date (YYYY-MM-DD)')
+    .withMessage('End date must be a valid date (YYYY-MM-DD)'),
+  
+  query('email')
+    .optional()
+    .isEmail()
+    .withMessage('Email must be a valid email address')
 ];

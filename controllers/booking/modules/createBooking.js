@@ -1,4 +1,10 @@
+const mongoose = require('mongoose');
 const Booking = require('../../../models/booking');
+const Car = require('../../../models/car');
+const { validationResult } = require('express-validator');
+const { clearHoldCountdown } = require('../../../utils/holdCountdown');
+const { setJSON, clearCache } = require('../../../utils/redis');
+const { formatDate } = require('../../../utils/logging');
 
 // @desc    Create a new booking
 // @route   POST /api/bookings
@@ -7,91 +13,157 @@ exports.createBooking = async (req, res) => {
   const session = await Booking.startSession();
   
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     const bookingData = req.body;
-    const { bookingDetails, selectedCar } = bookingData;
+    const { bookingDetails, selectedCar, userId } = bookingData;
+
+    // Normalize selectedCar: extract _id if full object was sent
+    const selectedCarId = (typeof selectedCar === 'object' && selectedCar?._id) ? selectedCar._id : selectedCar;
+
+    // Validate car exists
+    const carId = new mongoose.Types.ObjectId(selectedCarId);
+    const car = await Car.findById(carId);
+    if (!car) {
+      return res.status(404).json({
+        success: false,
+        message: 'Car not found'
+      });
+    }
     
     // Start transaction for race condition protection
-    const booking = await session.withTransaction(async () => {
-      // Check for race condition - conflicting bookings for the same car
-      const conflictingBooking = await Booking.findOne({
-        'selectedCar.id': selectedCar.id,
+    let savedBooking = null;
+    console.log(`debug:createBooking - userId from request: "${userId}", carId: "${carId}"`);
+    
+    // Verify the user has an active hold for these dates on this car.
+    // The hold system adds entries to Car.availability.unavailableDates with a userAgent.
+    // If the user has a hold, they should be allowed to save their booking.
+    const userAgent = req.headers['user-agent'] || '';
+    const { getActiveHold } = require('../../../utils/holdCountdown');
+    const activeHold = getActiveHold(userAgent);
+    const hasActiveHold = activeHold && activeHold.carId === carId.toString();
+    console.log(`debug:createBooking - userAgent hold check: hasActiveHold=${hasActiveHold}, activeHold:`, activeHold);
+    
+    await session.withTransaction(async () => {
+      // Check for conflicting bookings for the same car
+      const dateOverlapQuery = {
+        selectedCar: carId,
         'bookingStatus': { $in: ['pending', 'confirmed', 'active'] },
-        $expr: {
-          $or: [
-            // Date overlap check (for multi-day bookings)
-            {
-              $and: [
-                { $lte: ['$bookingDetails.startDate', bookingDetails.endDate] },
-                { $gte: ['$bookingDetails.endDate', bookingDetails.startDate] }
-              ]
-            },
-            // Same date with time overlap check
-            {
-              $and: [
-                { $eq: ['$bookingDetails.startDate', bookingDetails.startDate] },
-                { $eq: ['$bookingDetails.endDate', bookingDetails.endDate] },
-                {
-                  $or: [
-                    // New booking starts during existing booking time
-                    {
-                      $and: [
-                        { $lte: ['$bookingDetails.startTime', bookingDetails.startTime] },
-                        { $gt: ['$bookingDetails.endTime', bookingDetails.startTime] }
-                      ]
-                    },
-                    // New booking ends during existing booking time
-                    {
-                      $and: [
-                        { $lt: ['$bookingDetails.startTime', bookingDetails.endTime] },
-                        { $gte: ['$bookingDetails.endTime', bookingDetails.endTime] }
-                      ]
-                    },
-                    // New booking completely overlaps existing booking time
-                    {
-                      $and: [
-                        { $gte: ['$bookingDetails.startTime', bookingDetails.startTime] },
-                        { $lte: ['$bookingDetails.endTime', bookingDetails.endTime] }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      }).session(session);
+        $or: [
+          // Date overlap check (for multi-day bookings)
+          {
+            'bookingDetails.startDate': { $lte: bookingDetails.endDate },
+            'bookingDetails.endDate': { $gte: bookingDetails.startDate }
+          }
+        ]
+      };
       
-      if (conflictingBooking) {
-        // Throw error to abort transaction
-        const error = new Error('Car is already booked for the selected dates and times');
-        error.code = 'BOOKING_CONFLICT';
-        error.conflict = {
-          bookingId: conflictingBooking.bookingId,
-          startDate: conflictingBooking.bookingDetails.startDate,
-          endDate: conflictingBooking.bookingDetails.endDate,
-          startTime: conflictingBooking.bookingDetails.startTime,
-          endTime: conflictingBooking.bookingDetails.endTime,
-          bookingStatus: conflictingBooking.bookingStatus
-        };
-        throw error;
+      const conflictingBookings = await Booking.find(dateOverlapQuery).session(session);
+      
+      if (conflictingBookings.length > 0) {
+        // If the user has an active hold, cancel stale pending bookings that conflict
+        // (these are leftover from previous sessions that were never paid)
+        if (hasActiveHold) {
+          const stalePending = conflictingBookings.filter(b => 
+            b.bookingStatus === 'pending' && b.paymentStatus === 'pending'
+          );
+          const nonStale = conflictingBookings.filter(b => 
+            !(b.bookingStatus === 'pending' && b.paymentStatus === 'pending')
+          );
+          
+          // Cancel stale pending bookings
+          if (stalePending.length > 0) {
+            const staleIds = stalePending.map(b => b._id);
+            console.log(`debug:createBooking - cancelling ${stalePending.length} stale pending booking(s):`, staleIds);
+            await Booking.updateMany(
+              { _id: { $in: staleIds } },
+              { $set: { bookingStatus: 'cancelled', updatedAt: new Date() } },
+              { session }
+            );
+          }
+          
+          // If there are still non-stale conflicts (confirmed/active/paid), block
+          if (nonStale.length > 0) {
+            const conflict = nonStale[0];
+            const error = new Error('Car is already booked for the selected dates and times');
+            error.code = 'BOOKING_CONFLICT';
+            error.conflict = {
+              bookingId: conflict.bookingId,
+              startDate: conflict.bookingDetails.startDate,
+              endDate: conflict.bookingDetails.endDate,
+              startTime: conflict.bookingDetails.startTime,
+              endTime: conflict.bookingDetails.endTime,
+              bookingStatus: conflict.bookingStatus
+            };
+            throw error;
+          }
+        } else {
+          // No active hold — block with conflict error
+          const conflict = conflictingBookings[0];
+          const error = new Error('Car is already booked for the selected dates and times');
+          error.code = 'BOOKING_CONFLICT';
+          error.conflict = {
+            bookingId: conflict.bookingId,
+            startDate: conflict.bookingDetails.startDate,
+            endDate: conflict.bookingDetails.endDate,
+            startTime: conflict.bookingDetails.startTime,
+            endTime: conflict.bookingDetails.endTime,
+            bookingStatus: conflict.bookingStatus
+          };
+          throw error;
+        }
       }
       
       // Create new booking within transaction
-      const newBooking = new Booking(bookingData);
+      const newBooking = new Booking({
+        ...bookingData,
+        selectedCar: carId
+      });
       await newBooking.save({ session });
       
-      return newBooking;
+      savedBooking = newBooking;
     });
     
+    // Booking saved successfully — clear the hold countdown so it becomes permanent
+    const holdCleared = clearHoldCountdown(userAgent);
+    console.log(`debug:createBooking - hold cleared: ${holdCleared}`);
+
+    // Update Redis bookings cache
+    try {
+      await clearCache('bookings');
+      const allBookings = await Booking.find().populate('selectedCar').sort({ createdAt: -1 });
+      await setJSON('bookings', allBookings, 600);
+      console.log(`[${formatDate()}] - REDIS SET bookings cache updated (${allBookings.length} bookings)`);
+    } catch (cacheError) {
+      console.error(`[${formatDate()}] - REDIS SET bookings cache error:`, cacheError.message);
+    }
+
+    // Populate selectedCar in the response
+    const populatedBooking = await Booking.findById(savedBooking._id).populate('selectedCar');
+
     res.status(201).json({
       success: true,
-      data: booking,
+      data: populatedBooking,
       message: 'Booking created successfully'
     });
     
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
+    // Note: session.withTransaction() already handles abort internally,
+    // so we only need to abort if the transaction is still active
+    if (session.inTransaction()) {
+      try {
+        await session.abortTransaction();
+      } catch (abortError) {
+        console.error('Error aborting transaction:', abortError.message);
+      }
+    }
     
     console.error('Error creating booking:', error);
     

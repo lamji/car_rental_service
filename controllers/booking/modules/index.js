@@ -15,6 +15,7 @@ module.exports = {
   // Update operations
   updateBooking: require('./updateBooking').updateBooking,
   updatePaymentStatus: require('./updateStatus').updatePaymentStatus,
+  updatePaymentStatusByBookingId: require('./updateStatus').updatePaymentStatusByBookingId,
   updateBookingStatus: require('./updateStatus').updateBookingStatus,
   
   // Delete operations

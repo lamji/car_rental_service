@@ -5,7 +5,7 @@ const Booking = require('../../../models/booking');
 // @access  Private
 exports.getBookingById = async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id);
+    const booking = await Booking.findById(req.params.id).populate('selectedCar');
     
     if (!booking) {
       return res.status(404).json({
@@ -41,7 +41,7 @@ exports.getBookingById = async (req, res) => {
 // @access  Private
 exports.getBookingByBookingId = async (req, res) => {
   try {
-    const booking = await Booking.findOne({ bookingId: req.params.bookingId });
+    const booking = await Booking.findOne({ bookingId: req.params.bookingId }).populate('selectedCar');
     
     if (!booking) {
       return res.status(404).json({

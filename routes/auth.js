@@ -13,6 +13,7 @@ const { registerCashier } = require('../controllers/auth');
 const { validateRegister, validateLogin, validateCheckEmail, validateResetPassword, validateResetPasswordVerify, validateVerifyEmail, validateResendOtp } = require('../validators/authValidator');
 const { validateRegisterCashier } = require('../validators/cashierValidator');
 const profileController = require('../controllers/profile/index');
+const { generateGuestToken } = require('../controllers/auth/guestToken');
 
 const router = express.Router();
 
@@ -72,5 +73,10 @@ router.post('/verify-email', validateVerifyEmail, profileController.verifyEmail)
 // @route   POST /auth/opt-resend
 // @access  Public
 router.post('/opt-resend', validateResendOtp, profileController.resendOtp);
+
+// @desc    Generate guest token for unauthenticated booking
+// @route   POST /auth/guest-token
+// @access  Public
+router.post('/guest-token', generateGuestToken);
 
 module.exports = router;
