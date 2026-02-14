@@ -1,5 +1,38 @@
 const Booking = require('../../../models/booking');
 const { validationResult } = require('express-validator');
+const { setJSON, clearCache } = require('../../../utils/redis');
+const { formatDate } = require('../../../utils/logging');
+
+// Valid state transitions to prevent illegal status changes
+const VALID_PAYMENT_TRANSITIONS = {
+  pending:   ['paid', 'failed', 'cancelled'],
+  paid:      ['refunded'],
+  failed:    ['pending'],   // allow retry
+  refunded:  [],
+  cancelled: []
+};
+
+const VALID_BOOKING_TRANSITIONS = {
+  pending:   ['confirmed', 'cancelled'],
+  confirmed: ['active', 'cancelled'],
+  active:    ['completed', 'cancelled'],
+  completed: [],
+  cancelled: []
+};
+
+/**
+ * Refresh the Redis bookings cache after any mutation.
+ */
+async function refreshBookingsCache() {
+  try {
+    await clearCache('bookings');
+    const allBookings = await Booking.find().populate('selectedCar').sort({ createdAt: -1 });
+    await setJSON('bookings', allBookings, 600);
+    console.log(`[${formatDate()}] - REDIS SET bookings cache refreshed (${allBookings.length} bookings)`);
+  } catch (err) {
+    console.error(`[${formatDate()}] - REDIS bookings cache refresh error:`, err.message);
+  }
+}
 
 // @desc    Update booking payment status
 // @route   PATCH /api/bookings/:id/payment-status
@@ -23,24 +56,36 @@ exports.updatePaymentStatus = async (req, res) => {
         message: 'Payment status is required'
       });
     }
-    
-    const updateData = { paymentStatus };
+
+    // Atomic: only update if current status allows the transition
+    const allowedFrom = Object.entries(VALID_PAYMENT_TRANSITIONS)
+      .filter(([, to]) => to.includes(paymentStatus))
+      .map(([from]) => from);
+
+    const updateData = { paymentStatus, updatedAt: new Date() };
     if (paymentMethod) {
       updateData.paymentMethod = paymentMethod;
     }
     
-    const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
+    const booking = await Booking.findOneAndUpdate(
+      { _id: req.params.id, paymentStatus: { $in: allowedFrom } },
       updateData,
       { new: true, runValidators: true }
     );
     
     if (!booking) {
-      return res.status(404).json({
+      // Check if booking exists at all to give a better error
+      const exists = await Booking.findById(req.params.id).select('paymentStatus').lean();
+      if (!exists) {
+        return res.status(404).json({ success: false, message: 'Booking not found' });
+      }
+      return res.status(409).json({
         success: false,
-        message: 'Booking not found'
+        message: `Cannot transition payment from "${exists.paymentStatus}" to "${paymentStatus}"`
       });
     }
+
+    await refreshBookingsCache();
     
     res.status(200).json({
       success: true,
@@ -87,24 +132,35 @@ exports.updatePaymentStatusByBookingId = async (req, res) => {
         message: 'Payment status is required'
       });
     }
-    
-    const updateData = { paymentStatus };
+
+    // Atomic: only update if current status allows the transition
+    const allowedFrom = Object.entries(VALID_PAYMENT_TRANSITIONS)
+      .filter(([, to]) => to.includes(paymentStatus))
+      .map(([from]) => from);
+
+    const updateData = { paymentStatus, updatedAt: new Date() };
     if (paymentMethod) {
       updateData.paymentMethod = paymentMethod;
     }
     
     const booking = await Booking.findOneAndUpdate(
-      { bookingId: req.params.bookingId },
+      { bookingId: req.params.bookingId, paymentStatus: { $in: allowedFrom } },
       updateData,
       { new: true, runValidators: true }
     );
     
     if (!booking) {
-      return res.status(404).json({
+      const exists = await Booking.findOne({ bookingId: req.params.bookingId }).select('paymentStatus').lean();
+      if (!exists) {
+        return res.status(404).json({ success: false, message: 'Booking not found' });
+      }
+      return res.status(409).json({
         success: false,
-        message: 'Booking not found'
+        message: `Cannot transition payment from "${exists.paymentStatus}" to "${paymentStatus}"`
       });
     }
+
+    await refreshBookingsCache();
     
     res.status(200).json({
       success: true,
@@ -144,19 +200,30 @@ exports.updateBookingStatus = async (req, res) => {
         message: 'Booking status is required'
       });
     }
-    
-    const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
-      { bookingStatus },
+
+    // Atomic: only update if current status allows the transition
+    const allowedFrom = Object.entries(VALID_BOOKING_TRANSITIONS)
+      .filter(([, to]) => to.includes(bookingStatus))
+      .map(([from]) => from);
+
+    const booking = await Booking.findOneAndUpdate(
+      { _id: req.params.id, bookingStatus: { $in: allowedFrom } },
+      { bookingStatus, updatedAt: new Date() },
       { new: true, runValidators: true }
     );
     
     if (!booking) {
-      return res.status(404).json({
+      const exists = await Booking.findById(req.params.id).select('bookingStatus').lean();
+      if (!exists) {
+        return res.status(404).json({ success: false, message: 'Booking not found' });
+      }
+      return res.status(409).json({
         success: false,
-        message: 'Booking not found'
+        message: `Cannot transition booking from "${exists.bookingStatus}" to "${bookingStatus}"`
       });
     }
+
+    await refreshBookingsCache();
     
     res.status(200).json({
       success: true,
