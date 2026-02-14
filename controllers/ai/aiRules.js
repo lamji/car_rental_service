@@ -84,6 +84,12 @@ const createRule = async (req, res) => {
 
     await rule.save();
     await clearCache(RULES_CACHE_KEY);
+    
+    // Emit Socket.IO event to notify clients
+    if (global.io) {
+      global.io.emit('ai_rules_updated', { action: 'create', ruleNumber: rule.ruleNumber });
+    }
+    
     return res.json({ success: true, data: rule });
   } catch (error) {
     if (error.code === 11000) {
@@ -116,6 +122,12 @@ const updateRule = async (req, res) => {
 
     await rule.save();
     await clearCache(RULES_CACHE_KEY);
+    
+    // Emit Socket.IO event to notify clients
+    if (global.io) {
+      global.io.emit('ai_rules_updated', { action: 'update', ruleNumber: rule.ruleNumber });
+    }
+    
     return res.json({ success: true, data: rule });
   } catch (error) {
     console.error('Update rule error:', error);
@@ -144,6 +156,12 @@ const updateRuleByNumber = async (req, res) => {
 
     await rule.save();
     await clearCache(RULES_CACHE_KEY);
+    
+    // Emit Socket.IO event to notify clients
+    if (global.io) {
+      global.io.emit('ai_rules_updated', { action: 'update', ruleNumber: rule.ruleNumber });
+    }
+    
     return res.json({ success: true, data: rule });
   } catch (error) {
     console.error('Update rule by number error:', error);
@@ -163,6 +181,12 @@ const deleteRule = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Rule not found' });
     }
     await clearCache(RULES_CACHE_KEY);
+    
+    // Emit Socket.IO event to notify clients
+    if (global.io) {
+      global.io.emit('ai_rules_updated', { action: 'delete', ruleNumber: rule.ruleNumber });
+    }
+    
     return res.json({ success: true, message: 'Deleted' });
   } catch (error) {
     console.error('Delete rule error:', error);
@@ -207,6 +231,12 @@ const seedRules = async (req, res) => {
     }
 
     await clearCache(RULES_CACHE_KEY);
+    
+    // Emit Socket.IO event to notify clients
+    if (global.io) {
+      global.io.emit('ai_rules_updated', { action: 'seed', count: results.length });
+    }
+    
     return res.json({ success: true, results });
   } catch (error) {
     console.error('Seed rules error:', error);
