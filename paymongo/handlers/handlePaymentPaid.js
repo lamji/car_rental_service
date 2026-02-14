@@ -2,6 +2,7 @@ const { logError, formatDate } = require('../../utils/logging');
 const Booking = require('../../models/booking');
 const { emitPaymentStatusUpdate } = require('../../utils/socket');
 const { setJSON, clearCache } = require('../../utils/redis');
+const { sendPaymentSuccessEmail } = require('../../utils/bookingEmail');
 
 async function handlePaymentPaid(event) {
   try {
@@ -72,6 +73,14 @@ async function handlePaymentPaid(event) {
         },
       });
       console.log(`[${formatDate()}] - payment_status_updated socket event emitted for ${bookingId}`);
+    }
+
+    // Send payment success email (async, non-blocking)
+    const populatedBooking = await Booking.findOne({ bookingId }).populate('selectedCar');
+    if (populatedBooking) {
+      sendPaymentSuccessEmail(populatedBooking).catch(err => {
+        console.error(`[${formatDate()}] - Payment success email error (non-blocking):`, err.message);
+      });
     }
   } catch (error) {
     logError(`Error handling payment paid: ${error.message}`);

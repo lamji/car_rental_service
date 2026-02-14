@@ -5,6 +5,7 @@ const { validationResult } = require('express-validator');
 const { clearHoldCountdown } = require('../../../utils/holdCountdown');
 const { setJSON, clearCache } = require('../../../utils/redis');
 const { formatDate } = require('../../../utils/logging');
+const { sendBookingConfirmationEmail } = require('../../../utils/bookingEmail');
 
 // @desc    Create a new booking
 // @route   POST /api/bookings
@@ -152,6 +153,11 @@ exports.createBooking = async (req, res) => {
       success: true,
       data: populatedBooking,
       message: 'Booking created successfully'
+    });
+
+    // Send booking confirmation email (async, non-blocking)
+    sendBookingConfirmationEmail(populatedBooking, car).catch(err => {
+      console.error(`[${formatDate()}] - Booking email error (non-blocking):`, err.message);
     });
     
   } catch (error) {

@@ -16,6 +16,7 @@ require('dotenv').config();
  * @module routes/todos - Manages CRUD operations for todo items
  */
 const authRoutes = require('./routes/auth');
+const aiRoutes = require('./routes/ai');
 // const todoRoutes = require('./routes/todos');
 // const notificationRoutes = require('./routes/notifications');
 
@@ -170,6 +171,7 @@ db.then(() => {
   // app.use('/api/cart', cartRoutes);
   // app.use('/api/products', productRoutes);
   // app.use('/api/pos', posRoutes);
+  app.use('/api/ai', aiRoutes);
   app.use('/api/payments', paymentRoutes);
   app.use('/api/bookings', bookingRoutes);
   app.use('/api/cars', carRoutes);
